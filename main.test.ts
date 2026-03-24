@@ -1,57 +1,81 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest';
-import * as fs from 'node:fs/promises';
-import { csvToJSON, formatCSVFileToJSONFile } from './main';
+import { describe, it, expect } from "vitest";
+import { query, where, sort, groupBy, having } from "./main";
 
-vi.mock('node:fs/promises');
+type User = {
+  id: number;
+  name: string;
+  surname: string;
+  age: number;
+  city: string;
+};
 
-describe('CSV to JSON Logic', () => {
-    
-    describe('csvToJSON', () => {
-        it('должна корректно преобразовывать массив строк в объекты', () => {
-            const input = ["id;name", "1;Dima", "2;Andrey"];
-            const expected = [
-                { id: 1, name: "Dima" },
-                { id: 2, name: "Andrey" }
-            ];
-            expect(csvToJSON(input, ';')).toEqual(expected);
-        });
+const users: User[] = [
+  { id: 1, name: "John", surname: "Doe", age: 34, city: "NY" },
+  { id: 2, name: "John", surname: "Doe", age: 33, city: "NY" },
+  { id: 3, name: "John", surname: "Doe", age: 35, city: "LA" },
+  { id: 4, name: "Mike", surname: "Doe", age: 35, city: "LA" },
+];
 
-        it('должна возвращать пустой массив, если входные данные пусты', () => {
-            expect(csvToJSON([], ';')).toEqual([]);
-        });
+describe("Data Pipeline Queries", () => {
+  it("должен фильтровать и сортировать данные", () => {
+    const search = query(
+      where<User, "name">("name", "John"),
+      where("surname", "Doe"),
+      sort("age")
+    );
 
-        it('должна выбрасывать ошибку, если количество колонок не совпадает', () => {
-            const input = ["id;name", "1;Dima;Andrey"];
-            expect(() => csvToJSON(input, ';')).toThrow(/Mismatch in parametr count at row 1/);
-        });
-    });
+    const result = search(users);
 
-    describe('formatCSVFileToJSONFile', () => {
-        const mockedReadFile = vi.mocked(fs.readFile);
-        const mockedWriteFile = vi.mocked(fs.writeFile);
+    expect(result).toEqual([
+      { id: 2, name: "John", surname: "Doe", age: 33, city: "NY" },
+      { id: 1, name: "John", surname: "Doe", age: 34, city: "NY" },
+      { id: 3, name: "John", surname: "Doe", age: 35, city: "LA" },
+    ]);
+  });
 
-        beforeEach(() => {
-            vi.clearAllMocks();
-        });
+  it("должен группировать данные и фильтровать по группам", () => {
+    const groupAndFilter = query(
+      groupBy<User, "city">("city"),
+      having((group) => group.items.length > 1)
+    );
 
-        it('должна прочитать файл, вызвать конвертацию и записать результат', async () => {
-            const mockCSVContent = "id,city\n10,Moscow";
-            const expectedJSON = JSON.stringify([{ id: 10, city: "Moscow" }], null, 2);
-            
-            mockedReadFile.mockResolvedValue(mockCSVContent);
-            mockedWriteFile.mockResolvedValue(undefined);
+    const grouped = groupAndFilter(users);
 
-            await formatCSVFileToJSONFile('test.csv', 'test.json', ',');
+    expect(grouped).toEqual([
+      {
+        key: "NY",
+        items: [
+          { id: 1, name: "John", surname: "Doe", age: 34, city: "NY" },
+          { id: 2, name: "John", surname: "Doe", age: 33, city: "NY" },
+        ],
+      },
+      {
+        key: "LA",
+        items: [
+          { id: 3, name: "John", surname: "Doe", age: 35, city: "LA" },
+          { id: 4, name: "Mike", surname: "Doe", age: 35, city: "LA" },
+        ],
+      },
+    ]);
+  });
+  
+  it("должен выполнять комбинированный конвейер", () => {
+    const pipeline = query(
+      where<User, "surname">("surname", "Doe"),
+      groupBy("city"),
+      having((group) => group.items.some((u) => u.age > 34))
+    );
 
-            expect(mockedReadFile).toHaveBeenCalledWith('test.csv', 'utf-8');
-            expect(mockedWriteFile).toHaveBeenCalledWith('test.json', expectedJSON);
-        });
+    const res = pipeline(users);
 
-        it('должна пробрасывать ошибку, если чтение файла не удалось', async () => {
-            mockedReadFile.mockRejectedValue(new Error('Read error'));
-
-            await expect(formatCSVFileToJSONFile('bad.csv', 'out.json', ','))
-                .rejects.toThrow(/Read error/);
-        });
-    });
+    expect(res).toEqual([
+      {
+        key: "LA",
+        items: [
+          { id: 3, name: "John", surname: "Doe", age: 35, city: "LA" },
+          { id: 4, name: "Mike", surname: "Doe", age: 35, city: "LA" },
+        ],
+      },
+    ]);
+  });
 });

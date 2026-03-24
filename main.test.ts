@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import * as fs from 'node:fs/promises';
-import { csvToJSON, formatCSVFileToJSONFile } from './main';
+import { csvToJSON, formatCSVFileToJSONFile } from './main.ts';
 
 vi.mock('node:fs/promises');
 

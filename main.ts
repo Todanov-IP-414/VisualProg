@@ -1,8 +1,8 @@
 export type DeepReadonly<T> = {
   readonly [P in keyof T]: T[P] extends object 
     ? T[P] extends (...args: any[]) => any 
-      ? T[P] // Функции не трогаем
-      : DeepReadonly<T[P]> // Рекурсия для объектов и массивов
+      ? T[P]
+      : DeepReadonly<T[P]>
     : T[P];
 };
 

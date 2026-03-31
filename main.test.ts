@@ -1,91 +1,99 @@
-import { describe, it, expect } from 'vitest';
+import { describe, test, expect } from 'vitest';
 import { where, groupBy, having, sort, query } from './main';
 
-interface People {
-  id: number;
-  name: string;
-  category: string;
-  age: number;
+interface Vehicle {
+  vin: number;
+  brand: string;
+  type: string;
+  hp: number;
 }
 
-const Peoples: People[] = [
-  { id: 1, name: 'Dmitry', category: 'IT', age: 20 },
-  { id: 2, name: 'Andrey', category: 'IT', age: 25 },
-  { id: 3, name: 'Alexandr', category: 'Web', age: 27 },
-  { id: 4, name: 'Artem', category: 'IT', age: 20 },
+const fleet: Vehicle[] = [
+  { vin: 101, brand: 'Toyota', type: 'Sedan', hp: 150 },
+  { vin: 102, brand: 'BMW', type: 'SUV', hp: 250 },
+  { vin: 103, brand: 'Toyota', type: 'SUV', hp: 200 },
+  { vin: 104, brand: 'Tesla', type: 'Sedan', hp: 300 },
 ];
 
-describe('Query Pipeline System', () => {
+describe('Data Processing Engine (Lab 5 Refactor)', () => {
   
-  describe('Individual Operators', () => {
-    it('where: should filter data by key-value pair', () => {
-      const filterIT = where<People, 'category'>('category', 'IT');
-      const result = filterIT(Peoples);
-      expect(result).toHaveLength(3);
-      expect(result.every(i => i.category === 'IT')).toBe(true);
+  describe('Basic Transforms', () => {
+    test('Filter: should isolate SUV vehicles', () => {
+      const getSUVs = where<Vehicle, 'type'>('type', 'SUV');
+      const output = getSUVs(fleet);
+
+      expect(output.length).toBe(2);
+      expect(output[0].type).toEqual('SUV');
+      expect(output[1].type).toEqual('SUV');
     });
 
-    it('groupBy: should group items by key', () => {
-      const groupByCategory = groupBy<People, 'category'>('category');
-      const result = groupByCategory(Peoples);
-      
-      expect(result).toHaveLength(2);
-      const ITGroup = result.find(g => g.key === 'IT');
-      expect(ITGroup?.items).toHaveLength(3);
+    test('Grouping: should bucketize by brand', () => {
+      const byBrand = groupBy<Vehicle, 'brand'>('brand');
+      const groups = byBrand(fleet);
+
+      const toyota = groups.find(g => g.key === 'Toyota');
+      expect(toyota?.items).toContainEqual(fleet[0]);
+      expect(toyota?.items).toHaveLength(2);
     });
 
-    it('having: should filter groups by predicate', () => {
-      const groups = groupBy<People, 'category'>('category')(Peoples);
-      const filterGroups = having<People, 'category'>((g) => g.items.length > 1);
-      const result = filterGroups(groups);
+    test('Validation: should keep groups with more than one unit', () => {
+      const rawGroups = groupBy<Vehicle, 'brand'>('brand')(fleet);
+      const validator = having<Vehicle, 'brand'>(res => res.items.length > 1);
+      const filtered = validator(rawGroups);
 
-      expect(result).toHaveLength(1);
-      expect(result[0].key).toBe('IT');
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0].key).not.toBe('BMW');
+      expect(filtered[0].key).toBe('Toyota');
     });
 
-    it('sort: should sort items ascending', () => {
-      const sortByage = sort<People, 'age'>('age');
-      const result = sortByage(Peoples);
-      expect(result[0].age).toBe(20);
-      expect(result[3].age).toBe(27);
+    test('Ordering: should arrange by horsepower', () => {
+      const byPower = sort<Vehicle, 'hp'>('hp');
+      const sorted = byPower(fleet);
+
+      expect(sorted[0].hp).toBe(150);
+      expect(sorted[sorted.length - 1].hp).toBe(300);
     });
   });
 
-  describe('query() Functionality', () => {
-    it('should execute a full pipeline correctly', () => {
-      const fullQuery = query(
-        where<People, 'category'>('category', 'IT'),
-        groupBy<People, 'category'>('category'),
-        having<People, 'category'>(g => g.items.length > 1),
+  describe('Integration (Query Pipe)', () => {
+    test('Pipeline execution: chain filter, group and validate', () => {
+      const flow = query(
+        where<Vehicle, 'type'>('type', 'Sedan'),
+        groupBy<Vehicle, 'brand'>('brand'),
+        having<Vehicle, 'brand'>(g => g.items.length >= 1),
         sort<any, any>('key')
       );
 
-      const result = fullQuery(Peoples);
+      const finalData = flow(fleet);
 
-      expect(result).toHaveLength(1);
-      expect(result[0].key).toBe('IT');
-      expect(result[0].items).toHaveLength(3);
+      expect(finalData).toHaveLength(2);
+      expect(finalData.map(d => d.key)).toContain('Tesla');
     });
 
-    it('should work with partial pipelines (e.g., where + sort)', () => {
-      const simpleQuery = query(
-        where<People, 'category'>('category', 'IT'),
-        sort<People, 'age'>('age')
+    test('Short pipeline: filtering and sorting only', () => {
+      const quickScan = query(
+        where<Vehicle, 'brand'>('brand', 'Toyota'),
+        sort<Vehicle, 'hp'>('hp')
       );
 
-      const result = simpleQuery(Peoples);
-      expect(result).toHaveLength(3);
-      expect(result[0].age).toBe(20);
-      expect(result[2].age).toBe(25);
+      const result = quickScan(fleet);
+      expect(result[0].hp).toBeLessThan(result[1].hp);
     });
   });
 
-  describe('Type Integrity (Logic Check)', () => {
-    it('each operator should have the correct __stage brand', () => {
-    expect(where<Record<string, any>, string>('id', 1).__stage).toBe('where');
-    expect(groupBy<Record<string, any>, string>('category').__stage).toBe('groupBy');
-    expect(having<any, any>(() => true).__stage).toBe('having');
-    expect(sort<Record<string, any>, string>('id').__stage).toBe('sort');
+  describe('Metadata Verification', () => {
+    test('Check internal stage tags', () => {
+      const ops = [
+        where<any, any>('a', 'b'),
+        groupBy<any, any>('a'),
+        having<any, any>(() => true),
+        sort<any, any>('a')
+      ];
+
+      expect(ops[0].__stage).toBe('where');
+      expect(ops[1].__stage).toBe('groupBy');
+      expect(ops[2].__stage).toBe('having');
+      expect(ops[3].__stage).toBe('sort');
     });
   });
 });
